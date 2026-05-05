@@ -6,20 +6,33 @@ const PAYMENTS_URL = "https://functions.poehali.dev/99fa5599-2e74-49ff-bc06-fb69
 const CARD_NUMBER = "2200 7021 1838 9035";
 const BANK_NAME = "Т-Банк";
 
-type Page = "home" | "games" | "cabinet";
+type Page = "home" | "games" | "cabinet" | "play";
 
 const HERO_BG = "https://cdn.poehali.dev/projects/b1813f42-3b17-4dbd-9868-5f6d6eaff11a/files/4796c40c-6ffb-4b49-93c9-cf002c860a2c.jpg";
 const CARDS_IMG = "https://cdn.poehali.dev/projects/b1813f42-3b17-4dbd-9868-5f6d6eaff11a/files/7e8c6234-33c2-4662-bcb9-a761a8076342.jpg";
 
-const GAMES = [
-  { id: 1, name: "Баккара Роял", category: "Карты", rtp: "98.9%", icon: "♠", hot: true },
-  { id: 2, name: "Рулетка VIP", category: "Рулетка", rtp: "97.3%", icon: "◉", hot: true },
-  { id: 3, name: "Блэкджек Pro", category: "Карты", rtp: "99.5%", icon: "♦", hot: false },
-  { id: 4, name: "Европейская рулетка", category: "Рулетка", rtp: "97.3%", icon: "◎", hot: false },
-  { id: 5, name: "Покер Техас", category: "Покер", rtp: "97.6%", icon: "♣", hot: true },
-  { id: 6, name: "Dice Premium", category: "Кости", rtp: "98.1%", icon: "⚄", hot: false },
-  { id: 7, name: "Dragon Tiger", category: "Карты", rtp: "96.7%", icon: "♥", hot: true },
-  { id: 8, name: "Сicbo Luxe", category: "Кости", rtp: "97.2%", icon: "⚅", hot: false },
+interface Game {
+  id: number;
+  name: string;
+  category: string;
+  rtp: string;
+  icon: string;
+  hot: boolean;
+  color: string;
+  desc: string;
+  minBet: string;
+  maxBet: string;
+}
+
+const GAMES: Game[] = [
+  { id: 1, name: "Баккара Роял", category: "Карты", rtp: "98.9%", icon: "♠", hot: true, color: "#C9A84C", desc: "Классическая баккара с живым дилером. Ставьте на банкира, игрока или ничью.", minBet: "100 ₽", maxBet: "500 000 ₽" },
+  { id: 2, name: "Рулетка VIP", category: "Рулетка", rtp: "97.3%", icon: "◉", hot: true, color: "#E8C97A", desc: "Европейская рулетка с расширенными ставками и живым крупье.", minBet: "50 ₽", maxBet: "300 000 ₽" },
+  { id: 3, name: "Блэкджек Pro", category: "Карты", rtp: "99.5%", icon: "♦", hot: false, color: "#C9A84C", desc: "Профессиональный блэкджек. Наберите 21 или ближе к нему, чем дилер.", minBet: "200 ₽", maxBet: "200 000 ₽" },
+  { id: 4, name: "Европейская рулетка", category: "Рулетка", rtp: "97.3%", icon: "◎", hot: false, color: "#8B6914", desc: "Классическая европейская рулетка с одним нулём.", minBet: "10 ₽", maxBet: "100 000 ₽" },
+  { id: 5, name: "Покер Техас", category: "Покер", rtp: "97.6%", icon: "♣", hot: true, color: "#E8C97A", desc: "Texas Hold'em против дилера. Соберите лучшую комбинацию из 5 карт.", minBet: "100 ₽", maxBet: "100 000 ₽" },
+  { id: 6, name: "Dice Premium", category: "Кости", rtp: "98.1%", icon: "⚄", hot: false, color: "#C9A84C", desc: "Угадайте результат броска кубиков. Высокие коэффициенты.", minBet: "50 ₽", maxBet: "50 000 ₽" },
+  { id: 7, name: "Dragon Tiger", category: "Карты", rtp: "96.7%", icon: "♥", hot: true, color: "#E8C97A", desc: "Дракон против Тигра — простая и быстрая карточная игра.", minBet: "100 ₽", maxBet: "250 000 ₽" },
+  { id: 8, name: "Сicbo Luxe", category: "Кости", rtp: "97.2%", icon: "⚅", hot: false, color: "#8B6914", desc: "Азиатская игра в кости с множеством вариантов ставок.", minBet: "50 ₽", maxBet: "80 000 ₽" },
 ];
 
 const TRANSACTIONS = [
@@ -75,6 +88,52 @@ export default function Index() {
   const [depositSent, setDepositSent] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Game state
+  const [activeGame, setActiveGame] = useState<Game | null>(null);
+  const [openTabs, setOpenTabs] = useState<Game[]>([]);
+  const [bet, setBet] = useState("500");
+  const [gameResult, setGameResult] = useState<null | {win: boolean; amount: number; msg: string}>(null);
+  const [gameLoading, setGameLoading] = useState(false);
+
+  const openGame = (game: Game) => {
+    setActiveGame(game);
+    setOpenTabs(prev => prev.find(g => g.id === game.id) ? prev : [...prev, game]);
+    setPage("play");
+    setGameResult(null);
+  };
+
+  const closeTab = (gameId: number) => {
+    const newTabs = openTabs.filter(g => g.id !== gameId);
+    setOpenTabs(newTabs);
+    if (activeGame?.id === gameId) {
+      if (newTabs.length > 0) { setActiveGame(newTabs[newTabs.length - 1]); }
+      else { setActiveGame(null); setPage("games"); }
+    }
+  };
+
+  const switchTab = (game: Game) => {
+    setActiveGame(game);
+    setGameResult(null);
+  };
+
+  const playRound = () => {
+    if (!activeGame) return;
+    const betNum = Number(bet);
+    if (!betNum || betNum < 50) return;
+    setGameLoading(true);
+    setGameResult(null);
+    setTimeout(() => {
+      const win = Math.random() < 0.48;
+      const mult = win ? (Math.random() < 0.3 ? 3 : 2) : 0;
+      const amount = win ? betNum * mult : -betNum;
+      const msgs = win
+        ? ["Удача на вашей стороне!", "Превосходно! Вы победили!", "Блестящий результат!"]
+        : ["Увы, в этот раз не ваш день.", "Попробуйте ещё раз.", "Фортуна переменчива..."];
+      setGameResult({ win, amount, msg: msgs[Math.floor(Math.random() * msgs.length)] });
+      setGameLoading(false);
+    }, 1200);
+  };
+
   const saveToken = (t: string, user: {username: string; balance: number; vip_level: string}) => {
     localStorage.setItem("aurum_token", t);
     setToken(t);
@@ -128,8 +187,18 @@ export default function Index() {
     setDepositSent(true);
   };
 
-  const copyCard = () => {
-    navigator.clipboard.writeText(CARD_NUMBER.replace(/\s/g, ""));
+  const copyCard = async () => {
+    const num = CARD_NUMBER.replace(/\s/g, "");
+    try {
+      await navigator.clipboard.writeText(num);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = num;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -155,7 +224,7 @@ export default function Index() {
             {([ ["home", "Главная", "Home"], ["games", "Игры", "Gamepad2"], ["cabinet", "Кабинет", "User"] ] as const).map(([id, label, icon]) => (
               <button
                 key={id}
-                onClick={() => setPage(id)}
+                onClick={() => setPage(id as Page)}
                 className="flex items-center gap-2 px-4 py-2 rounded text-sm font-montserrat font-medium transition-all duration-300"
                 style={{
                   color: page === id ? "#C9A84C" : "#a89060",
@@ -170,6 +239,14 @@ export default function Index() {
           </div>
 
           <div className="flex items-center gap-3">
+            {openTabs.length > 0 && (
+              <button onClick={() => { setPage("play"); setActiveGame(openTabs[openTabs.length - 1]); }}
+                className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded font-montserrat text-xs transition-all"
+                style={{ background: page === "play" ? "rgba(201,168,76,0.15)" : "rgba(201,168,76,0.07)", color: "#C9A84C", border: "1px solid rgba(201,168,76,0.3)" }}>
+                <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                {openTabs.length} {openTabs.length === 1 ? "игра" : "игры"}
+              </button>
+            )}
             {currentUser ? (
               <>
                 <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded"
@@ -194,13 +271,24 @@ export default function Index() {
         {/* Mobile nav */}
         <div className="md:hidden flex border-t" style={{ borderColor: "rgba(201,168,76,0.1)" }}>
           {([ ["home", "Главная", "Home"], ["games", "Игры", "Gamepad2"], ["cabinet", "Кабинет", "User"] ] as const).map(([id, label, icon]) => (
-            <button key={id} onClick={() => setPage(id)}
+            <button key={id} onClick={() => setPage(id as Page)}
               className="flex-1 flex flex-col items-center gap-1 py-2 text-xs transition-all"
               style={{ color: page === id ? "#C9A84C" : "#6b5a3a" }}>
               <Icon name={icon} size={18} />
               {label}
             </button>
           ))}
+          {openTabs.length > 0 && (
+            <button onClick={() => { setPage("play"); setActiveGame(openTabs[openTabs.length - 1]); }}
+              className="flex-1 flex flex-col items-center gap-1 py-2 text-xs transition-all relative"
+              style={{ color: page === "play" ? "#C9A84C" : "#6b5a3a" }}>
+              <div className="relative">
+                <Icon name="Gamepad" size={18} />
+                <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-400" />
+              </div>
+              Играю
+            </button>
+          )}
         </div>
       </nav>
 
@@ -303,7 +391,7 @@ export default function Index() {
                     border: "1px solid rgba(201,168,76,0.15)",
                     animationDelay: `${i * 0.1}s`
                   }}
-                  onClick={() => setPage("games")}>
+                  onClick={() => openGame(game)}>
                   <div className="flex items-start justify-between mb-4">
                     <div className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl"
                       style={{ background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.2)" }}>
@@ -393,7 +481,7 @@ export default function Index() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
               {filteredGames.map((game, i) => (
                 <div key={game.id} className="card-hover cursor-pointer rounded-lg overflow-hidden animate-fade-in-up"
-                  style={{ background: "var(--dark-card)", border: "1px solid rgba(201,168,76,0.15)", animationDelay: `${i * 0.07}s` }}>
+                  style={{ background: "var(--dark-card)", border: `1px solid ${activeGame?.id === game.id ? "rgba(201,168,76,0.5)" : "rgba(201,168,76,0.15)"}`, animationDelay: `${i * 0.07}s` }}>
                   <div className="h-36 flex items-center justify-center text-6xl relative"
                     style={{ background: "linear-gradient(135deg, #0D0B08, #1C1814)" }}>
                     <span className="animate-float" style={{ animationDelay: `${i * 0.3}s` }}>{game.icon}</span>
@@ -403,22 +491,206 @@ export default function Index() {
                         🔥 HOT
                       </div>
                     )}
+                    {openTabs.find(g => g.id === game.id) && (
+                      <div className="absolute top-3 left-3 w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    )}
                   </div>
                   <div className="p-4">
                     <div className="font-cormorant text-lg font-medium mb-1" style={{ color: "#E8D5A3" }}>{game.name}</div>
-                    <div className="font-montserrat text-xs mb-3" style={{ color: "#6b5a3a" }}>{game.category}</div>
+                    <div className="font-montserrat text-xs mb-1" style={{ color: "#6b5a3a" }}>{game.category}</div>
+                    <div className="font-montserrat text-xs mb-3" style={{ color: "#6b5a3a" }}>Ставки: {game.minBet} — {game.maxBet}</div>
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-xs font-montserrat" style={{ color: "#6b5a3a" }}>RTP</div>
                         <div className="font-cormorant text-lg" style={{ color: "#C9A84C" }}>{game.rtp}</div>
                       </div>
-                      <button className="btn-gold px-4 py-2 rounded text-xs font-montserrat tracking-wider">
-                        Играть
+                      <button className="btn-gold px-4 py-2 rounded text-xs font-montserrat tracking-wider"
+                        onClick={() => openGame(game)}>
+                        {openTabs.find(g => g.id === game.id) ? "Открыть" : "Играть"}
                       </button>
                     </div>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== PLAY PAGE ===================== */}
+      {page === "play" && activeGame && (
+        <div className="pt-16 md:pt-20 min-h-screen flex flex-col" style={{ background: "var(--dark-bg)" }}>
+
+          {/* Tabs bar */}
+          <div className="flex items-center gap-0 overflow-x-auto border-b px-4 pt-2"
+            style={{ borderColor: "rgba(201,168,76,0.15)", background: "var(--dark-card)" }}>
+            {openTabs.map(tab => (
+              <div key={tab.id}
+                className="flex items-center gap-2 px-4 py-2.5 cursor-pointer transition-all flex-shrink-0 rounded-t-lg mr-1"
+                style={{
+                  background: activeGame.id === tab.id ? "var(--dark-bg)" : "transparent",
+                  borderTop: activeGame.id === tab.id ? "1px solid rgba(201,168,76,0.4)" : "1px solid transparent",
+                  borderLeft: activeGame.id === tab.id ? "1px solid rgba(201,168,76,0.2)" : "1px solid transparent",
+                  borderRight: activeGame.id === tab.id ? "1px solid rgba(201,168,76,0.2)" : "1px solid transparent",
+                }}
+                onClick={() => switchTab(tab)}>
+                <span className="text-base">{tab.icon}</span>
+                <span className="font-montserrat text-xs font-medium whitespace-nowrap"
+                  style={{ color: activeGame.id === tab.id ? "#C9A84C" : "#6b5a3a" }}>
+                  {tab.name}
+                </span>
+                <button className="ml-1 w-4 h-4 rounded-full flex items-center justify-center transition-all hover:bg-red-900"
+                  onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
+                  style={{ color: "#6b5a3a" }}>
+                  <Icon name="X" size={10} />
+                </button>
+              </div>
+            ))}
+            <button onClick={() => setPage("games")}
+              className="flex items-center gap-1.5 px-3 py-2 ml-2 rounded font-montserrat text-xs flex-shrink-0 transition-all"
+              style={{ color: "#6b5a3a", border: "1px solid rgba(201,168,76,0.15)" }}>
+              <Icon name="Plus" size={12} /> Ещё игры
+            </button>
+          </div>
+
+          {/* Game area */}
+          <div className="flex-1 flex flex-col lg:flex-row gap-0">
+
+            {/* Main game view */}
+            <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-10">
+              {/* Game "table" */}
+              <div className="w-full max-w-lg rounded-2xl overflow-hidden animate-fade-in-up"
+                style={{ background: "linear-gradient(135deg, #0D0B08 0%, #1C1814 100%)", border: "1px solid rgba(201,168,76,0.25)", minHeight: 320 }}>
+
+                {/* Table header */}
+                <div className="px-6 py-4 border-b flex items-center justify-between"
+                  style={{ borderColor: "rgba(201,168,76,0.15)" }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">{activeGame.icon}</span>
+                    <div>
+                      <div className="font-cormorant text-xl" style={{ color: "#E8D5A3" }}>{activeGame.name}</div>
+                      <div className="font-montserrat text-xs" style={{ color: "#6b5a3a" }}>{activeGame.category} · RTP {activeGame.rtp}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="font-montserrat text-xs" style={{ color: "#6b5a3a" }}>Live</span>
+                  </div>
+                </div>
+
+                {/* Game table visual */}
+                <div className="flex flex-col items-center justify-center py-10 px-6">
+                  {!gameResult && !gameLoading && (
+                    <div className="text-center animate-fade-in-up">
+                      <div className="text-8xl mb-4 animate-float">{activeGame.icon}</div>
+                      <p className="font-montserrat text-sm mb-2" style={{ color: "#6b5a3a" }}>{activeGame.desc}</p>
+                      <p className="font-montserrat text-xs" style={{ color: "#3d3020" }}>
+                        Ставки: {activeGame.minBet} — {activeGame.maxBet}
+                      </p>
+                    </div>
+                  )}
+
+                  {gameLoading && (
+                    <div className="text-center">
+                      <div className="text-7xl mb-4 animate-spin-slow">{activeGame.icon}</div>
+                      <p className="font-montserrat text-sm animate-pulse" style={{ color: "#C9A84C" }}>Идёт раунд...</p>
+                    </div>
+                  )}
+
+                  {gameResult && !gameLoading && (
+                    <div className="text-center animate-fade-in-up">
+                      <div className="text-6xl mb-3">{gameResult.win ? "🏆" : "💔"}</div>
+                      <div className="font-cormorant text-4xl mb-2"
+                        style={{ color: gameResult.win ? "#22c55e" : "#ef4444" }}>
+                        {gameResult.win ? "+" : ""}{gameResult.amount.toLocaleString("ru")} ₽
+                      </div>
+                      <p className="font-montserrat text-sm" style={{ color: gameResult.win ? "#a3f0b0" : "#a89060" }}>
+                        {gameResult.msg}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Betting panel */}
+            <div className="lg:w-72 xl:w-80 p-4 lg:p-6 flex flex-col gap-4"
+              style={{ borderLeft: "1px solid rgba(201,168,76,0.1)", background: "rgba(20,18,16,0.6)" }}>
+
+              <div>
+                <div className="font-montserrat text-xs tracking-wider mb-2" style={{ color: "#6b5a3a" }}>ВАША СТАВКА (₽)</div>
+                <input type="number" value={bet} onChange={e => setBet(e.target.value)}
+                  className="w-full px-4 py-3 rounded font-cormorant text-xl outline-none"
+                  style={{ background: "rgba(201,168,76,0.06)", border: "1px solid rgba(201,168,76,0.25)", color: "#E8C97A" }}
+                  onFocus={e => (e.target.style.borderColor = "#C9A84C")}
+                  onBlur={e => (e.target.style.borderColor = "rgba(201,168,76,0.25)")} />
+                <div className="grid grid-cols-4 gap-1.5 mt-2">
+                  {["100", "500", "1000", "5000"].map(v => (
+                    <button key={v} onClick={() => setBet(v)}
+                      className="py-1.5 rounded text-xs font-montserrat transition-all"
+                      style={{ background: bet === v ? "rgba(201,168,76,0.2)" : "rgba(201,168,76,0.06)", color: bet === v ? "#C9A84C" : "#6b5a3a", border: `1px solid ${bet === v ? "rgba(201,168,76,0.4)" : "rgba(201,168,76,0.1)"}` }}>
+                      {Number(v).toLocaleString("ru")}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-1.5 mt-1.5">
+                  <button onClick={() => setBet(String(Math.floor(Number(bet) / 2)))}
+                    className="flex-1 py-1.5 rounded text-xs font-montserrat transition-all"
+                    style={{ background: "rgba(201,168,76,0.06)", color: "#6b5a3a", border: "1px solid rgba(201,168,76,0.1)" }}>
+                    ½
+                  </button>
+                  <button onClick={() => setBet(String(Number(bet) * 2))}
+                    className="flex-1 py-1.5 rounded text-xs font-montserrat transition-all"
+                    style={{ background: "rgba(201,168,76,0.06)", color: "#6b5a3a", border: "1px solid rgba(201,168,76,0.1)" }}>
+                    ×2
+                  </button>
+                  <button onClick={() => setBet("MAX")}
+                    className="flex-1 py-1.5 rounded text-xs font-montserrat transition-all"
+                    style={{ background: "rgba(201,168,76,0.06)", color: "#6b5a3a", border: "1px solid rgba(201,168,76,0.1)" }}>
+                    MAX
+                  </button>
+                </div>
+              </div>
+
+              <button onClick={playRound} disabled={gameLoading}
+                className="btn-gold w-full py-4 rounded font-montserrat text-sm tracking-widest uppercase"
+                style={{ opacity: gameLoading ? 0.6 : 1 }}>
+                {gameLoading ? "Раунд идёт..." : "Сделать ставку"}
+              </button>
+
+              {currentUser && (
+                <div className="rounded-lg p-3" style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.1)" }}>
+                  <div className="font-montserrat text-xs mb-1" style={{ color: "#6b5a3a" }}>Баланс</div>
+                  <div className="font-cormorant text-xl" style={{ color: "#C9A84C" }}>
+                    {currentUser.balance.toLocaleString("ru")} ₽
+                  </div>
+                </div>
+              )}
+
+              {!currentUser && (
+                <div className="rounded-lg p-3 text-center" style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.15)" }}>
+                  <p className="font-montserrat text-xs mb-2" style={{ color: "#6b5a3a" }}>
+                    Войдите для игры на реальные деньги
+                  </p>
+                  <button onClick={() => setPage("cabinet")} className="btn-gold px-4 py-2 rounded font-montserrat text-xs tracking-wider">
+                    Войти / Регистрация
+                  </button>
+                </div>
+              )}
+
+              <div className="mt-auto">
+                <div className="font-montserrat text-xs mb-2" style={{ color: "#3d3020" }}>Также открыты</div>
+                <div className="flex flex-col gap-1.5">
+                  {openTabs.filter(t => t.id !== activeGame.id).map(t => (
+                    <button key={t.id} onClick={() => switchTab(t)}
+                      className="flex items-center gap-2 px-3 py-2 rounded transition-all text-left"
+                      style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.1)" }}>
+                      <span>{t.icon}</span>
+                      <span className="font-montserrat text-xs" style={{ color: "#a89060" }}>{t.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
