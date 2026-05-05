@@ -1,6 +1,11 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
 
+const AUTH_URL = "https://functions.poehali.dev/a3cd9fbb-04c6-4d84-9c96-75a5e57efff6";
+const PAYMENTS_URL = "https://functions.poehali.dev/99fa5599-2e74-49ff-bc06-fb69ba77aa4c";
+const CARD_NUMBER = "2200 7021 1838 9035";
+const BANK_NAME = "Т-Банк";
+
 type Page = "home" | "games" | "cabinet";
 
 const HERO_BG = "https://cdn.poehali.dev/projects/b1813f42-3b17-4dbd-9868-5f6d6eaff11a/files/4796c40c-6ffb-4b49-93c9-cf002c860a2c.jpg";
@@ -39,11 +44,95 @@ const WITHDRAW_METHODS = [
   { icon: "🏦", label: "СБП / Перевод", min: "от 1 000 ₽", time: "~2 часа" },
 ];
 
+interface DepositInfo {
+  payment_id: number;
+  payment_code: string;
+  amount: number;
+  card_number: string;
+  bank: string;
+}
+
 export default function Index() {
   const [page, setPage] = useState<Page>("home");
   const [activeFilter, setActiveFilter] = useState("Все");
   const [payTab, setPayTab] = useState<"deposit" | "withdraw">("deposit");
   const [amount, setAmount] = useState("");
+
+  // Auth state
+  const [authTab, setAuthTab] = useState<"login" | "register">("login");
+  const [authLogin, setAuthLogin] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [token, setToken] = useState(() => localStorage.getItem("aurum_token") || "");
+  const [currentUser, setCurrentUser] = useState<{username: string; balance: number; vip_level: string} | null>(null);
+
+  // Deposit state
+  const [depositLoading, setDepositLoading] = useState(false);
+  const [depositInfo, setDepositInfo] = useState<DepositInfo | null>(null);
+  const [depositSent, setDepositSent] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const saveToken = (t: string, user: {username: string; balance: number; vip_level: string}) => {
+    localStorage.setItem("aurum_token", t);
+    setToken(t);
+    setCurrentUser(user);
+  };
+
+  const logout = () => {
+    if (token) fetch(AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json", "X-Session-Token": token }, body: JSON.stringify({ action: "logout" }) });
+    localStorage.removeItem("aurum_token");
+    setToken("");
+    setCurrentUser(null);
+    setDepositInfo(null);
+    setDepositSent(false);
+  };
+
+  const handleAuth = async () => {
+    setAuthError("");
+    setAuthLoading(true);
+    const body = authTab === "login"
+      ? { action: "login", login: authLogin, password: authPassword }
+      : { action: "register", email: authEmail, username: authUsername, password: authPassword };
+    const res = await fetch(AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json();
+    setAuthLoading(false);
+    if (data.error) { setAuthError(data.error); return; }
+    saveToken(data.token, { username: data.username, balance: data.balance ?? 0, vip_level: data.vip_level ?? "STANDARD" });
+  };
+
+  const handleDeposit = async () => {
+    if (!amount || Number(amount) < 100) return;
+    setDepositLoading(true);
+    const res = await fetch(PAYMENTS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Session-Token": token },
+      body: JSON.stringify({ action: "create_deposit", amount: Number(amount) })
+    });
+    const data = await res.json();
+    setDepositLoading(false);
+    if (data.error) { alert(data.error); return; }
+    setDepositInfo(data);
+    setDepositSent(false);
+  };
+
+  const handleConfirmSent = async () => {
+    if (!depositInfo) return;
+    await fetch(PAYMENTS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Session-Token": token },
+      body: JSON.stringify({ action: "confirm_sent", payment_id: depositInfo.payment_id })
+    });
+    setDepositSent(true);
+  };
+
+  const copyCard = () => {
+    navigator.clipboard.writeText(CARD_NUMBER.replace(/\s/g, ""));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const categories = ["Все", "Карты", "Рулетка", "Покер", "Кости"];
   const filteredGames = activeFilter === "Все" ? GAMES : GAMES.filter(g => g.category === activeFilter);
@@ -81,15 +170,24 @@ export default function Index() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded"
-              style={{ background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.25)" }}>
-              <Icon name="Wallet" size={14} style={{ color: "#C9A84C" }} />
-              <span className="text-sm font-montserrat font-medium" style={{ color: "#C9A84C" }}>127 500 ₽</span>
-            </div>
-            <button className="btn-gold px-4 py-2 rounded text-sm font-montserrat"
-              onClick={() => setPage("cabinet")}>
-              Войти
-            </button>
+            {currentUser ? (
+              <>
+                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded"
+                  style={{ background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.25)" }}>
+                  <Icon name="Wallet" size={14} style={{ color: "#C9A84C" }} />
+                  <span className="text-sm font-montserrat font-medium" style={{ color: "#C9A84C" }}>
+                    {currentUser.balance.toLocaleString("ru")} ₽
+                  </span>
+                </div>
+                <button className="btn-gold px-4 py-2 rounded text-sm font-montserrat" onClick={() => setPage("cabinet")}>
+                  {currentUser.username}
+                </button>
+              </>
+            ) : (
+              <button className="btn-gold px-4 py-2 rounded text-sm font-montserrat" onClick={() => setPage("cabinet")}>
+                Войти
+              </button>
+            )}
           </div>
         </div>
 
@@ -329,164 +427,266 @@ export default function Index() {
       {/* ===================== CABINET PAGE ===================== */}
       {page === "cabinet" && (
         <div className="pt-20 md:pt-24 min-h-screen">
-          <div className="max-w-5xl mx-auto px-6">
+          <div className="max-w-xl mx-auto px-6">
 
-            {/* Profile header */}
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-6 mb-10 pt-6 animate-fade-in-up">
-              <div className="w-20 h-20 rounded-full flex items-center justify-center text-3xl font-cormorant font-bold animate-pulse-gold"
-                style={{ background: "linear-gradient(135deg, #1C1814, #2a2318)", border: "2px solid #C9A84C", color: "#C9A84C" }}>
-                АВ
-              </div>
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h2 className="font-cormorant text-3xl font-medium" style={{ color: "#E8D5A3" }}>Александр Волков</h2>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-montserrat"
-                    style={{ background: "rgba(201,168,76,0.2)", color: "#C9A84C", border: "1px solid rgba(201,168,76,0.3)" }}>
-                    VIP GOLD
-                  </span>
+            {/* AUTH FORM — если не залогинен */}
+            {!currentUser && (
+              <div className="pt-10 animate-fade-in-up">
+                <div className="text-center mb-8">
+                  <p className="font-montserrat text-xs tracking-widest mb-2 uppercase" style={{ color: "#C9A84C" }}>Добро пожаловать</p>
+                  <h2 className="font-cormorant text-4xl font-light" style={{ color: "#E8D5A3" }}>
+                    {authTab === "login" ? "Вход в аккаунт" : "Регистрация"}
+                  </h2>
                 </div>
-                <div className="font-montserrat text-xs" style={{ color: "#6b5a3a" }}>Участник с января 2024 · ID: #AV-48291</div>
-              </div>
-              <div className="md:ml-auto flex flex-col items-end gap-1">
-                <div className="font-montserrat text-xs tracking-wider" style={{ color: "#6b5a3a" }}>БАЛАНС</div>
-                <div className="font-cormorant text-4xl animate-gold-shimmer">127 500 ₽</div>
-              </div>
-            </div>
 
-            {/* Quick stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">
-              {[
-                { label: "Депозиты", value: "350 000 ₽", icon: "TrendingUp" },
-                { label: "Выводы", value: "198 000 ₽", icon: "TrendingDown" },
-                { label: "Выигрыши", icon: "Trophy", value: "47 раз" },
-                { label: "Бонусный счёт", value: "3 200 ₽", icon: "Gift" },
-              ].map((item, i) => (
-                <div key={i} className="rounded-lg p-4 animate-fade-in-up"
-                  style={{ background: "var(--dark-card)", border: "1px solid rgba(201,168,76,0.15)", animationDelay: `${i * 0.1}s` }}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Icon name={item.icon} size={14} style={{ color: "#C9A84C" }} />
-                    <span className="font-montserrat text-xs" style={{ color: "#6b5a3a" }}>{item.label}</span>
-                  </div>
-                  <div className="font-cormorant text-xl" style={{ color: "#E8D5A3" }}>{item.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Payment section */}
-            <div className="rounded-xl mb-8 overflow-hidden animate-fade-in-up delay-200"
-              style={{ background: "var(--dark-card)", border: "1px solid rgba(201,168,76,0.2)" }}>
-              <div className="flex border-b" style={{ borderColor: "rgba(201,168,76,0.15)" }}>
-                {([ ["deposit", "Пополнить"], ["withdraw", "Вывести"] ] as const).map(([tab, label]) => (
-                  <button key={tab} onClick={() => setPayTab(tab)}
-                    className="flex-1 py-4 font-montserrat text-sm tracking-wider transition-all"
-                    style={{
-                      color: payTab === tab ? "#C9A84C" : "#6b5a3a",
-                      borderBottom: payTab === tab ? "2px solid #C9A84C" : "2px solid transparent",
-                      background: payTab === tab ? "rgba(201,168,76,0.05)" : "transparent",
-                    }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="p-6">
-                <div className="mb-5">
-                  <label className="font-montserrat text-xs tracking-wider mb-2 block" style={{ color: "#6b5a3a" }}>
-                    СУММА (₽)
-                  </label>
-                  <input
-                    type="number"
-                    value={amount}
-                    onChange={e => setAmount(e.target.value)}
-                    placeholder="Введите сумму..."
-                    className="w-full px-4 py-3 rounded font-montserrat text-sm outline-none transition-all"
-                    style={{
-                      background: "rgba(201,168,76,0.05)",
-                      border: "1px solid rgba(201,168,76,0.2)",
-                      color: "#E8D5A3",
-                    }}
-                    onFocus={e => (e.target.style.borderColor = "#C9A84C")}
-                    onBlur={e => (e.target.style.borderColor = "rgba(201,168,76,0.2)")}
-                  />
-                  <div className="flex gap-2 mt-2">
-                    {["1000", "5000", "10000", "50000"].map(v => (
-                      <button key={v} onClick={() => setAmount(v)}
-                        className="flex-1 py-1.5 rounded text-xs font-montserrat transition-all"
-                        style={{ background: "rgba(201,168,76,0.08)", color: "#a89060", border: "1px solid rgba(201,168,76,0.15)" }}>
-                        {Number(v).toLocaleString("ru")}
+                <div className="rounded-xl overflow-hidden" style={{ background: "var(--dark-card)", border: "1px solid rgba(201,168,76,0.2)" }}>
+                  <div className="flex border-b" style={{ borderColor: "rgba(201,168,76,0.15)" }}>
+                    {([ ["login", "Войти"], ["register", "Создать аккаунт"] ] as const).map(([tab, label]) => (
+                      <button key={tab} onClick={() => { setAuthTab(tab); setAuthError(""); }}
+                        className="flex-1 py-4 font-montserrat text-sm tracking-wider transition-all"
+                        style={{
+                          color: authTab === tab ? "#C9A84C" : "#6b5a3a",
+                          borderBottom: authTab === tab ? "2px solid #C9A84C" : "2px solid transparent",
+                          background: authTab === tab ? "rgba(201,168,76,0.05)" : "transparent",
+                        }}>
+                        {label}
                       </button>
                     ))}
                   </div>
+
+                  <div className="p-6 flex flex-col gap-4">
+                    {authTab === "register" && (
+                      <>
+                        <div>
+                          <label className="font-montserrat text-xs tracking-wider mb-1.5 block" style={{ color: "#6b5a3a" }}>EMAIL</label>
+                          <input value={authEmail} onChange={e => setAuthEmail(e.target.value)}
+                            placeholder="your@email.com" type="email"
+                            className="w-full px-4 py-3 rounded font-montserrat text-sm outline-none"
+                            style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.2)", color: "#E8D5A3" }}
+                            onFocus={e => (e.target.style.borderColor = "#C9A84C")}
+                            onBlur={e => (e.target.style.borderColor = "rgba(201,168,76,0.2)")} />
+                        </div>
+                        <div>
+                          <label className="font-montserrat text-xs tracking-wider mb-1.5 block" style={{ color: "#6b5a3a" }}>ИМЯ ПОЛЬЗОВАТЕЛЯ</label>
+                          <input value={authUsername} onChange={e => setAuthUsername(e.target.value)}
+                            placeholder="Никнейм"
+                            className="w-full px-4 py-3 rounded font-montserrat text-sm outline-none"
+                            style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.2)", color: "#E8D5A3" }}
+                            onFocus={e => (e.target.style.borderColor = "#C9A84C")}
+                            onBlur={e => (e.target.style.borderColor = "rgba(201,168,76,0.2)")} />
+                        </div>
+                      </>
+                    )}
+                    {authTab === "login" && (
+                      <div>
+                        <label className="font-montserrat text-xs tracking-wider mb-1.5 block" style={{ color: "#6b5a3a" }}>EMAIL ИЛИ ЛОГИН</label>
+                        <input value={authLogin} onChange={e => setAuthLogin(e.target.value)}
+                          placeholder="Email или никнейм"
+                          className="w-full px-4 py-3 rounded font-montserrat text-sm outline-none"
+                          style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.2)", color: "#E8D5A3" }}
+                          onFocus={e => (e.target.style.borderColor = "#C9A84C")}
+                          onBlur={e => (e.target.style.borderColor = "rgba(201,168,76,0.2)")} />
+                      </div>
+                    )}
+                    <div>
+                      <label className="font-montserrat text-xs tracking-wider mb-1.5 block" style={{ color: "#6b5a3a" }}>ПАРОЛЬ</label>
+                      <input value={authPassword} onChange={e => setAuthPassword(e.target.value)}
+                        placeholder="Минимум 6 символов" type="password"
+                        className="w-full px-4 py-3 rounded font-montserrat text-sm outline-none"
+                        style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.2)", color: "#E8D5A3" }}
+                        onFocus={e => (e.target.style.borderColor = "#C9A84C")}
+                        onBlur={e => (e.target.style.borderColor = "rgba(201,168,76,0.2)")}
+                        onKeyDown={e => e.key === "Enter" && handleAuth()} />
+                    </div>
+
+                    {authError && (
+                      <div className="px-4 py-2 rounded text-sm font-montserrat"
+                        style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}>
+                        {authError}
+                      </div>
+                    )}
+
+                    <button className="btn-gold w-full py-3.5 rounded font-montserrat text-sm tracking-widest uppercase mt-1"
+                      onClick={handleAuth} disabled={authLoading}>
+                      {authLoading ? "Загрузка..." : authTab === "login" ? "Войти" : "Зарегистрироваться"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PROFILE — если залогинен */}
+            {currentUser && (
+              <div className="pt-6">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-8 animate-fade-in-up">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-cormorant font-bold animate-pulse-gold"
+                      style={{ background: "linear-gradient(135deg, #1C1814, #2a2318)", border: "2px solid #C9A84C", color: "#C9A84C" }}>
+                      {currentUser.username.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <h2 className="font-cormorant text-2xl font-medium" style={{ color: "#E8D5A3" }}>{currentUser.username}</h2>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-montserrat"
+                          style={{ background: "rgba(201,168,76,0.2)", color: "#C9A84C", border: "1px solid rgba(201,168,76,0.3)" }}>
+                          {currentUser.vip_level}
+                        </span>
+                      </div>
+                      <div className="font-cormorant text-2xl animate-gold-shimmer">
+                        {currentUser.balance.toLocaleString("ru")} ₽
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={logout} className="flex items-center gap-1.5 px-3 py-2 rounded font-montserrat text-xs transition-all"
+                    style={{ color: "#6b5a3a", border: "1px solid rgba(201,168,76,0.15)" }}>
+                    <Icon name="LogOut" size={13} />
+                    Выйти
+                  </button>
                 </div>
 
-                <div className="mb-6">
-                  <label className="font-montserrat text-xs tracking-wider mb-3 block" style={{ color: "#6b5a3a" }}>
-                    СПОСОБ {payTab === "deposit" ? "ПОПОЛНЕНИЯ" : "ВЫВОДА"}
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(payTab === "deposit" ? PAYMENT_METHODS : WITHDRAW_METHODS).map((m, i) => (
-                      <div key={i} className="card-hover cursor-pointer rounded-lg p-3 flex items-center gap-3"
-                        style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.15)" }}>
-                        <span className="text-xl">{m.icon}</span>
-                        <div>
-                          <div className="font-montserrat text-xs font-medium" style={{ color: "#E8D5A3" }}>{m.label}</div>
-                          <div className="font-montserrat text-xs" style={{ color: "#6b5a3a" }}>
-                            {"tag" in m ? m.tag : `${"min" in m ? m.min : ""} · ${"time" in m ? m.time : ""}`}
-                          </div>
-                        </div>
-                      </div>
+                {/* Payment tabs */}
+                <div className="rounded-xl overflow-hidden mb-6 animate-fade-in-up delay-100"
+                  style={{ background: "var(--dark-card)", border: "1px solid rgba(201,168,76,0.2)" }}>
+                  <div className="flex border-b" style={{ borderColor: "rgba(201,168,76,0.15)" }}>
+                    {([ ["deposit", "Пополнить"], ["withdraw", "Вывести"] ] as const).map(([tab, label]) => (
+                      <button key={tab} onClick={() => { setPayTab(tab); setDepositInfo(null); setDepositSent(false); }}
+                        className="flex-1 py-4 font-montserrat text-sm tracking-wider transition-all"
+                        style={{
+                          color: payTab === tab ? "#C9A84C" : "#6b5a3a",
+                          borderBottom: payTab === tab ? "2px solid #C9A84C" : "2px solid transparent",
+                          background: payTab === tab ? "rgba(201,168,76,0.05)" : "transparent",
+                        }}>
+                        {label}
+                      </button>
                     ))}
                   </div>
-                </div>
 
-                <button className="btn-gold w-full py-3.5 rounded font-montserrat text-sm tracking-widest uppercase">
-                  {payTab === "deposit" ? "Пополнить баланс" : "Вывести средства"}
-                </button>
-              </div>
-            </div>
+                  <div className="p-6">
+                    {/* DEPOSIT flow */}
+                    {payTab === "deposit" && !depositInfo && (
+                      <>
+                        <label className="font-montserrat text-xs tracking-wider mb-2 block" style={{ color: "#6b5a3a" }}>СУММА (₽)</label>
+                        <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                          placeholder="Минимум 100 ₽"
+                          className="w-full px-4 py-3 rounded font-montserrat text-sm outline-none mb-2"
+                          style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.2)", color: "#E8D5A3" }}
+                          onFocus={e => (e.target.style.borderColor = "#C9A84C")}
+                          onBlur={e => (e.target.style.borderColor = "rgba(201,168,76,0.2)")} />
+                        <div className="flex gap-2 mb-5">
+                          {["1000", "5000", "10000", "50000"].map(v => (
+                            <button key={v} onClick={() => setAmount(v)}
+                              className="flex-1 py-1.5 rounded text-xs font-montserrat transition-all"
+                              style={{ background: "rgba(201,168,76,0.08)", color: "#a89060", border: "1px solid rgba(201,168,76,0.15)" }}>
+                              {Number(v).toLocaleString("ru")}
+                            </button>
+                          ))}
+                        </div>
+                        <button className="btn-gold w-full py-3.5 rounded font-montserrat text-sm tracking-widest uppercase"
+                          onClick={handleDeposit} disabled={depositLoading}>
+                          {depositLoading ? "Создаю заявку..." : "Получить реквизиты"}
+                        </button>
+                      </>
+                    )}
 
-            {/* Transaction history */}
-            <div className="rounded-xl mb-16 overflow-hidden animate-fade-in-up delay-300"
-              style={{ background: "var(--dark-card)", border: "1px solid rgba(201,168,76,0.2)" }}>
-              <div className="px-6 py-4 border-b flex items-center gap-2"
-                style={{ borderColor: "rgba(201,168,76,0.15)" }}>
-                <Icon name="History" size={16} style={{ color: "#C9A84C" }} />
-                <span className="font-montserrat text-sm font-medium" style={{ color: "#E8D5A3" }}>История транзакций</span>
-              </div>
-
-              <div>
-                {TRANSACTIONS.map((tx, i) => (
-                  <div key={tx.id} className="px-6 py-4 flex items-center gap-4 transition-all hover:bg-opacity-50"
-                    style={{ borderBottom: i < TRANSACTIONS.length - 1 ? "1px solid rgba(201,168,76,0.08)" : "none" }}>
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-                      style={{
-                        background: tx.type === "deposit" ? "rgba(34,197,94,0.15)" : tx.type === "withdraw" ? "rgba(201,168,76,0.15)" : "rgba(139,105,20,0.2)",
-                      }}>
-                      <Icon
-                        name={tx.type === "deposit" ? "ArrowDownLeft" : tx.type === "withdraw" ? "ArrowUpRight" : "Gamepad2"}
-                        size={14}
-                        style={{ color: tx.type === "deposit" ? "#22c55e" : "#C9A84C" }}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-montserrat text-sm font-medium truncate" style={{ color: "#E8D5A3" }}>{tx.label}</div>
-                      <div className="font-montserrat text-xs" style={{ color: "#6b5a3a" }}>{tx.method} · {tx.date}</div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="font-cormorant text-lg font-medium"
-                        style={{ color: tx.amount.startsWith("+") ? "#22c55e" : "#E8D5A3" }}>
-                        {tx.amount}
+                    {/* Реквизиты для перевода */}
+                    {payTab === "deposit" && depositInfo && !depositSent && (
+                      <div className="animate-fade-in-up">
+                        <p className="font-montserrat text-xs mb-4" style={{ color: "#a89060" }}>
+                          Переведите точную сумму на карту и укажите код в комментарии:
+                        </p>
+                        <div className="rounded-lg p-4 mb-3" style={{ background: "rgba(201,168,76,0.06)", border: "1px solid rgba(201,168,76,0.25)" }}>
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <div className="font-montserrat text-xs mb-1" style={{ color: "#6b5a3a" }}>НОМЕР КАРТЫ · {BANK_NAME}</div>
+                              <div className="font-cormorant text-2xl tracking-widest" style={{ color: "#E8C97A" }}>{CARD_NUMBER}</div>
+                            </div>
+                            <button onClick={copyCard} className="flex items-center gap-1.5 px-3 py-2 rounded font-montserrat text-xs transition-all"
+                              style={{ background: copied ? "rgba(34,197,94,0.15)" : "rgba(201,168,76,0.1)", color: copied ? "#22c55e" : "#C9A84C", border: `1px solid ${copied ? "rgba(34,197,94,0.3)" : "rgba(201,168,76,0.2)"}` }}>
+                              <Icon name={copied ? "Check" : "Copy"} size={13} />
+                              {copied ? "Скопировано" : "Копировать"}
+                            </button>
+                          </div>
+                          <div className="flex gap-4">
+                            <div>
+                              <div className="font-montserrat text-xs mb-0.5" style={{ color: "#6b5a3a" }}>СУММА</div>
+                              <div className="font-cormorant text-xl" style={{ color: "#C9A84C" }}>{depositInfo.amount.toLocaleString("ru")} ₽</div>
+                            </div>
+                            <div>
+                              <div className="font-montserrat text-xs mb-0.5" style={{ color: "#6b5a3a" }}>КОД В КОММЕНТАРИИ</div>
+                              <div className="font-montserrat text-sm font-bold" style={{ color: "#E8C97A" }}>{depositInfo.payment_code}</div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="rounded-lg px-4 py-3 mb-4 flex items-start gap-2"
+                          style={{ background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.2)" }}>
+                          <Icon name="AlertCircle" size={14} style={{ color: "#eab308", flexShrink: 0, marginTop: 1 }} />
+                          <p className="font-montserrat text-xs" style={{ color: "#a89060" }}>
+                            Обязательно укажите код <strong style={{ color: "#E8C97A" }}>{depositInfo.payment_code}</strong> в комментарии к переводу — иначе пополнение не будет зачислено.
+                          </p>
+                        </div>
+                        <div className="flex gap-3">
+                          <button onClick={() => setDepositInfo(null)}
+                            className="flex-1 py-3 rounded font-montserrat text-sm transition-all"
+                            style={{ color: "#6b5a3a", border: "1px solid rgba(201,168,76,0.15)" }}>
+                            Назад
+                          </button>
+                          <button onClick={handleConfirmSent} className="btn-gold flex-1 py-3 rounded font-montserrat text-sm tracking-wider">
+                            Я оплатил ✓
+                          </button>
+                        </div>
                       </div>
-                      <div className="font-montserrat text-xs"
-                        style={{ color: tx.status === "success" ? "#22c55e" : "#C9A84C" }}>
-                        {tx.status === "success" ? "Выполнено" : "В обработке"}
+                    )}
+
+                    {/* Подтверждение */}
+                    {payTab === "deposit" && depositSent && (
+                      <div className="text-center py-4 animate-fade-in-up">
+                        <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
+                          style={{ background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)" }}>
+                          <Icon name="Check" size={24} style={{ color: "#22c55e" }} />
+                        </div>
+                        <h3 className="font-cormorant text-2xl mb-2" style={{ color: "#E8D5A3" }}>Заявка принята</h3>
+                        <p className="font-montserrat text-sm mb-5" style={{ color: "#6b5a3a" }}>
+                          Обычно подтверждение занимает до 15 минут.<br />Баланс будет зачислен автоматически.
+                        </p>
+                        <button onClick={() => { setDepositInfo(null); setDepositSent(false); setAmount(""); }}
+                          className="btn-gold px-6 py-2.5 rounded font-montserrat text-sm tracking-wider">
+                          Новое пополнение
+                        </button>
                       </div>
-                    </div>
+                    )}
+
+                    {/* WITHDRAW */}
+                    {payTab === "withdraw" && (
+                      <>
+                        <label className="font-montserrat text-xs tracking-wider mb-2 block" style={{ color: "#6b5a3a" }}>СУММА ВЫВОДА (₽)</label>
+                        <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                          placeholder="Минимум 500 ₽"
+                          className="w-full px-4 py-3 rounded font-montserrat text-sm outline-none mb-4"
+                          style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.2)", color: "#E8D5A3" }}
+                          onFocus={e => (e.target.style.borderColor = "#C9A84C")}
+                          onBlur={e => (e.target.style.borderColor = "rgba(201,168,76,0.2)")} />
+                        <div className="grid grid-cols-2 gap-2 mb-5">
+                          {WITHDRAW_METHODS.map((m, i) => (
+                            <div key={i} className="card-hover cursor-pointer rounded-lg p-3 flex items-center gap-3"
+                              style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.15)" }}>
+                              <span className="text-xl">{m.icon}</span>
+                              <div>
+                                <div className="font-montserrat text-xs font-medium" style={{ color: "#E8D5A3" }}>{m.label}</div>
+                                <div className="font-montserrat text-xs" style={{ color: "#6b5a3a" }}>{m.min} · {m.time}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <button className="btn-gold w-full py-3.5 rounded font-montserrat text-sm tracking-widest uppercase">
+                          Оформить вывод
+                        </button>
+                      </>
+                    )}
                   </div>
-                ))}
+                </div>
               </div>
-            </div>
-
+            )}
           </div>
         </div>
       )}
